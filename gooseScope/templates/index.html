@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GOOSEScope</title>
+    <link href="static/css/bootstrap.min.css" rel="stylesheet">
+<!--suppress JSUnresolvedLibraryURL -->
+<script src="static/jquery.min.js"></script>
+<!--suppress JSUnresolvedLibraryURL -->
+<script src="static/bootstrap.min.js"></script>
+
+  <script src="static/chart.js"></script>
+  <script src="static/luxon.js"></script>
+  <script src="static/chartjs-adapter-luxon.js"></script>
+  <script src="static/hammer.min.js"></script>
+  <script src="static/chartjs-plugin-zoom.min.js"></script>
+  <script src="static/chartjs-plugin-streaming@2.0.0-beta.2.js"></script>
+  <script>
+
+//https://nagix.github.io/chartjs-plugin-streaming/samples/zoom.html
+
+var chartColors = {
+  red: 'rgb(255, 99, 132)',
+  yellow: 'rgb(255, 205, 86)',
+  green: 'rgb(75, 192, 192)',
+};
+
+function onRefresh(chart) {
+  /*var now = Date.now();
+  chart.data.datasets.forEach(function(dataset) {
+    dataset.data.push({
+      x: now, //timestamp
+      y: 2, // values
+    });
+  });*/
+}
+
+var color = Chart.helpers.color;
+
+var config = {
+  type: 'line',
+  data: {
+    datasets: []
+  },
+  options: {
+    scales: {
+      x: {
+        type: 'realtime',
+        realtime: {
+          duration: 20000,
+          refresh: 1000,
+          delay: 2000,
+          onRefresh: onRefresh
+        }
+      },
+      y: {
+        type: 'linear',
+        display: true,
+        title: {
+          display: true,
+          text: 'value'
+        }
+      }
+    },
+    interaction: {
+      intersect: false
+    },
+    plugins: {
+      title: {
+        display: true,
+        text: 'Zoom plugin sample'
+      },
+      zoom: {
+        pan: {
+          enabled: true,
+          mode: 'x'
+        },
+        zoom: {
+          enabled: true,
+          mode: 'x'
+        },
+        limits: {
+          x: {
+            minDelay: 0,
+            maxDelay: 4000,
+            minDuration: 1000,
+            maxDuration: 20000
+          }
+        }
+      }
+    }
+  }
+};
+</script>
+</head>
+<body>
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+          <div class="form-group">
+            <select class="mdb-select colorful-select md-form custom-select" multiple id="streamValue">
+            </select>
+          </div>
+          <div>
+            <canvas id="gooseChart"></canvas>
+          </div>
+        </div>
+    </div>
+</div>
+<script>
+
+var colorNames = Object.keys(chartColors);
+
+function addDataset(label) {
+  var colorName = colorNames[config.data.datasets.length % colorNames.length];
+  var newColor = chartColors[colorName];
+  var newDataset = {
+    label: label,
+    backgroundColor: color(newColor).alpha(0.5).rgbString(),
+    borderColor: newColor,
+    fill: false,
+    data: []
+  };
+
+  config.data.datasets.push(newDataset);
+  window.myChart.update();
+  return newDataset;
+}
+
+function sendChange(ref)
+{
+  var value
+  if(ref.type == "checkbox") value = ref.checked;
+  else value = ref.value;
+
+  console.log(JSON.stringify({ "id": ref.id, "value": value }));
+
+  $.ajax({
+      type: "POST",
+      data: JSON.stringify({ "id": ref.id, "value": value }),
+      url: 'control-setting',
+      dataType: 'json',
+      contentType: "application/json",
+      success: function(res){
+          //console.log(res);
+      },
+      error: function(res){
+          console.log(res);
+      }
+  });
+}
+
+function sendChangeMultiple(ref)
+{
+  var pref = ref.parentElement;
+  var options = pref.selectedOptions;
+  var values = Array.from(options).map(({ value }) => value);
+  console.log(values);
+
+  $.ajax({
+      type: "POST",
+      data: JSON.stringify({ "id": pref.id, "value": values }),
+      url: 'control-setting',
+      dataType: 'json',
+      contentType: "application/json",
+      success: function(res){
+          //console.log(res);
+      },
+      error: function(res){
+          console.log(res);
+      }
+  });
+}
+
+window.onload = function() {
+  var ctx = document.getElementById('gooseChart').getContext('2d');
+  window.myChart = new Chart(ctx, config);
+
+  const stream_source = new EventSource("/stream-data");
+  stream_source.onmessage = function (event) {
+    const cdata = JSON.parse(event.data);
+    console.log(cdata);
+
+
+    for(var stream in cdata) { //streams
+      for(var idx in cdata[stream]) { // index of values send (a list of values is send)
+        var timestmp = cdata[stream][idx].time;
+
+        for(var channel in cdata[stream][idx].values) { //channels for this index of a stream
+          var dset = 'Dataset ' + stream + '-' + channel; //derive label from key stream/channel values
+          console.log(dset);
+          var newDataSet = null;
+          config.data.datasets.forEach(function(dataset) { //search for this dataset
+            if( dataset.label === dset){ // if found, add data to it
+              newDataSet = dataset;
+              //return false;
+            }
+          });
+          if(newDataSet == null){
+            // no dataset found, so add it
+            newDataSet = addDataset(dset);
+          }
+          //we now have a valid dataset to add our data to
+          newDataSet.data.push({
+            x: timestmp, //timestamp
+            y: cdata[stream][idx].values[channel], // values
+          });
+        }
+      }
+    }
+
+    /*config.data.datasets.forEach(function(dataset) {
+      cdata['1'].forEach(function(cdata_item){ //watch it, '1' should refer to the stream/dataset name
+        dataset.data.push({
+          x: cdata_item.time, //timestamp
+          y: cdata_item.values[0], // values
+        });
+      });
+    });*/
+    window.myChart.update();
+  }
+
+  const control_source = new EventSource("/control-data");
+  control_source.onmessage = function (event) {
+    const data = JSON.parse(event.data);
+    for(const dataItem in data) {
+      if(dataItem == "streamSelect_items") { // populate stream list with items (means a new stream was discovered)
+        const streamSelect = document.getElementById('streamValue');
+        streamSelect.options.length = 0;
+        var i = 1;
+        for (var item of data[dataItem]) {
+          var opt = new Option(item,i);
+          
+          opt.onmousedown = function() {
+              if ($(this).is(':selected')) {
+                  $(this).removeAttr('selected');
+                  this.selected = false;
+              } else {
+                  $(this).attr('selected','true');
+                  this.selected = true;
+              }
+              sendChangeMultiple(this);
+              return false;
+            };
+          streamSelect.add(opt);
+          i++;
+        }
+      }
+      else { // just update a regular control
+        for (const prop in data[dataItem] ) {
+          var obj = document.getElementById( prop );
+          if (typeof data[dataItem][prop] === "boolean") {
+            obj.checked = data[dataItem][prop];
+          }
+          if(prop === "streamValue"){//handling for a multiselect list control
+            for(var option of obj.options){
+              if(data[dataItem][prop].includes(option.value) ){
+                option.selected = true;
+                $(option).attr('selected','true');
+              }
+              else{
+                option.selected = false;
+                $(option).removeAttr('selected');
+              }
+            }
+          }
+          else {//any generic control; just update item.value
+            obj.value = data[dataItem][prop];
+          }
+        }
+      } 
+    }
+  }
+
+};
+</script>
+</body>
+</html>

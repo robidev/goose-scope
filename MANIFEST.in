@@ -1,4 +1,4 @@
-include smvscope
-recursive-include smvScope/templates *
-recursive-include smvScope/static *
+include goosescope
+recursive-include gooseScope/templates *
+recursive-include gooseScope/static *
 global-exclude *.pyc

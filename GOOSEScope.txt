@@ -1,4 +1,0 @@
-show list of goose received
-allow to select goose-streams
-allow to select values for plotting
-plot values

@@ -20,7 +20,6 @@ application = Flask(__name__)
 
 control_data_d = {}
 control_data_d_update = True
-streamFilter = None
 streamList = []
 streamListingThread = threading.Thread()
 
@@ -33,6 +32,7 @@ goose_data = {}
 control_data_d['streamSelect_items'] = [] # list of streams
 control_data_d['streamSelect'] = { "streamValue": [] } # selected stream
 
+StreamDetails = {}
 
 # duration can be > 0 to set a timeout, 0 for immediate and -1 for infinite
 def getGOOSEStreams(interface, duration):
@@ -88,7 +88,21 @@ def getGOOSEStreams(interface, duration):
         gocbRef = packet[gocbRef_length + 2 : gocbRef_length + 2 + gocbRef_size].decode("utf-8")
         #print("mac: %s, appid: %i, gocbRef: %s, gocbRef_size: %i" % (dst, appid, gocbRef, gocbRef_size))
 
-        item = "%s %i %s" % (dst,appid,gocbRef)
+        #item = "%s %i %s" % (dst,appid,gocbRef)
+        if gocbRef not in StreamDetails:
+            StreamDetails[gocbRef] = {'src': src, 'dst': dst, 'appid': appid}
+        else:
+            if StreamDetails[gocbRef]['src'] != src or StreamDetails[gocbRef]['dst'] != dst or StreamDetails[gocbRef]['appid'] != appid:
+                print("ERROR: goose collision! message received with matching gocbref: %s but;" % gocbRef)
+                if StreamDetails[gocbRef]['src'] != src:
+                    print("  src mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['src'], src))
+                if StreamDetails[gocbRef]['dst'] != dst:
+                    print("  dst mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['dst'], dst))               
+                if StreamDetails[gocbRef]['appid'] != appid:
+                    print("  appid not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['appid'], appid))
+                print("NOTE: gocbref are expected to be unique for each stream")
+
+        item = "%s" % (gocbRef)
         if item not in streams:
             streams.append(item)
         if duration == 0:
@@ -127,9 +141,10 @@ def update_setting(subject, control, value):
             if item not in goose_data:
                 goose_data[item] = [] # ensure we initialised the dataset
 
-            stream = streamList[int(item)-1].split() # gocbref from itemlist
-            dst_mac = binascii.unhexlify(stream[0].replace(':', ''))
-            subscribers_refs[item] =  subscribe(receiver, dst_mac, int(stream[1]), stream[2], int(item), start = False)
+            #stream = streamList[int(item)-1].split() # gocbref from itemlist
+            #dst_mac = binascii.unhexlify(stream[0].replace(':', ''))
+            #subscribers_refs[item] =  subscribe(receiver, dst_mac, int(stream[1]), stream[2], int(item), start = False)
+            subscribers_refs[item] =  subscribe(receiver, streamList[int(item)-1], int(item), start = False)
         # differences have been processed, value is the actual state
         subscribers_list = value
 
@@ -161,7 +176,6 @@ def control_setting(): # post requests with data from client-side javascript eve
 def control_data_g():
     global control_data_d
     global control_data_d_update
-    global streamFilter
     global streamList
     streamList_Length = 0
     while True:
@@ -173,8 +187,6 @@ def control_data_g():
             for stream in streamList:
                 control_data_d['streamSelect_items'].append(stream)
             streamList_Length = len(streamList)
-            if streamFilter == None:
-                streamFilter = control_data_d['streamSelect_items'][0]
             control_data_d_update = True
 
         # update the controls when a control is updated
@@ -286,21 +298,12 @@ def gooseListener_cb(subscriber, parameter):
 gooseListener = lib61850.GooseListener(gooseListener_cb)
 
 
-def subscribe(receiver, mac, appid, gocbref, param, start = True):
+def subscribe(receiver, gocbref, param, start = True):
     global gooseListener
     if lib61850.GooseReceiver_isRunning(receiver):
         lib61850.GooseReceiver_stop(receiver)
 
     subscriber = lib61850.GooseSubscriber_create(gocbref, None)
-
-    if mac != None:
-        dstMac_p = (ctypes.c_uint8 * int(6))(*mac)
-        lib61850.GooseSubscriber_setDstMac(subscriber, dstMac_p)
-
-    if appid != None:
-        lib61850.GooseSubscriber_setAppId(subscriber, appid)
-    else:
-        appid = -1
 
     lib61850.GooseSubscriber_setListener(subscriber, gooseListener, param)
 
@@ -311,7 +314,7 @@ def subscribe(receiver, mac, appid, gocbref, param, start = True):
         if lib61850.GooseReceiver_isRunning(receiver) == False:
             print("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.")
             sys.exit(-1)
-    print("INFO: GOOSE subscribed with: %s %i %s (param: %s)" % (mac, appid, gocbref, param))
+    print("INFO: GOOSE subscribed with: %s (param: %s)" % (gocbref, param))
     return subscriber
 
 

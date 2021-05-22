@@ -204,6 +204,7 @@ def control_data():
     return Response(control_data_g(), mimetype='text/event-stream')
 
 def print_to_log(message):
+    global log_list
     log_list.append(message)
 
 def log_data_g():
@@ -384,10 +385,10 @@ def start ():
     receiver = lib61850.GooseReceiver_create()
 
     if len(sys.argv) > 1:
-        print("Set interface id: %s" % sys.argv[1])
+        print_to_log("Set interface id: %s" % sys.argv[1])
         lib61850.GooseReceiver_setInterfaceId(receiver, sys.argv[1])
     else:
-        print("Using interface eth0")
+        print_to_log("Using interface eth0")
         lib61850.GooseReceiver_setInterfaceId(receiver, "eth0")
 
     # general stream listener thread to catch all streams(subscribed and unsubscribed)

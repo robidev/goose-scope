@@ -25,16 +25,6 @@ var chartColors = {
   green: 'rgb(75, 192, 192)',
 };
 
-function onRefresh(chart) {
-  /*var now = Date.now();
-  chart.data.datasets.forEach(function(dataset) {
-    dataset.data.push({
-      x: now, //timestamp
-      y: 2, // values
-    });
-  });*/
-}
-
 var color = Chart.helpers.color;
 
 var config = {
@@ -50,7 +40,6 @@ var config = {
           duration: 20000,
           refresh: 1000,
           delay: 2000,
-          onRefresh: onRefresh
         }
       },
       y: {
@@ -68,7 +57,7 @@ var config = {
     plugins: {
       title: {
         display: true,
-        text: 'Zoom plugin sample'
+        text: 'GOOSE Scope'
       },
       zoom: {
         pan: {
@@ -98,11 +87,15 @@ var config = {
     <div class="row">
         <div class="col-12">
           <div class="form-group">
+            <label for="streamValue">List of available streams: (click to visualise one or more streams)</label>
             <select class="mdb-select colorful-select md-form custom-select" multiple id="streamValue">
             </select>
           </div>
           <div>
             <canvas id="gooseChart"></canvas>
+          </div>
+          <div>
+            <textarea class="form-control" rows="6" readonly id="log"></textarea>
           </div>
         </div>
     </div>
@@ -270,6 +263,16 @@ window.onload = function() {
         }
       } 
     }
+  }
+
+  const log_source = new EventSource("/log-data");
+  log_source.onmessage = function (event) {
+    const data = JSON.parse(event.data);
+    var log_item = document.getElementById('log');
+    for(const item of data){
+      log_item.value += item + "\n";
+    }
+    log_item.scrollTop = log_item.scrollHeight;
   }
 
 };

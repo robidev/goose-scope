@@ -33,10 +33,13 @@ control_data_d['streamSelect_items'] = [] # list of streams
 control_data_d['streamSelect'] = { "streamValue": [] } # selected stream
 
 StreamDetails = {}
+log_list = []
 
 # duration can be > 0 to set a timeout, 0 for immediate and -1 for infinite
 def getGOOSEStreams(interface, duration):
     global streamList
+    global StreamDetails
+
     #Convert a string of 6 characters of ethernet address into a dash separated hex string
     def eth_addr (a) :
         b = "%.2x:%.2x:%.2x:%.2x:%.2x:%.2x" % ((a[0]) , (a[1]) , (a[2]), (a[3]), (a[4]) , (a[5]))
@@ -44,7 +47,7 @@ def getGOOSEStreams(interface, duration):
 
     ret =  os.system("ifconfig %s promisc" % interface)
     if ret != 0:
-        print("error setting promiscuous mode on %s" % sys.argv[1])
+        print_to_log("error setting promiscuous mode on %s" % sys.argv[1])
         sys.exit(-1)
 
     #create an INET, raw socket
@@ -86,21 +89,21 @@ def getGOOSEStreams(interface, duration):
         gocbRef_length = 25
         gocbRef_size = int(packet[gocbRef_length + 1])
         gocbRef = packet[gocbRef_length + 2 : gocbRef_length + 2 + gocbRef_size].decode("utf-8")
-        #print("mac: %s, appid: %i, gocbRef: %s, gocbRef_size: %i" % (dst, appid, gocbRef, gocbRef_size))
+        #print_to_log("mac: %s, appid: %i, gocbRef: %s, gocbRef_size: %i" % (dst, appid, gocbRef, gocbRef_size))
 
         #item = "%s %i %s" % (dst,appid,gocbRef)
         if gocbRef not in StreamDetails:
             StreamDetails[gocbRef] = {'src': src, 'dst': dst, 'appid': appid}
         else:
             if StreamDetails[gocbRef]['src'] != src or StreamDetails[gocbRef]['dst'] != dst or StreamDetails[gocbRef]['appid'] != appid:
-                print("ERROR: goose collision! message received with matching gocbref: %s but;" % gocbRef)
+                print_to_log("ERROR: goose collision! message received with matching gocbref: %s but;" % gocbRef)
                 if StreamDetails[gocbRef]['src'] != src:
-                    print("  src mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['src'], src))
+                    print_to_log("  src mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['src'], src))
                 if StreamDetails[gocbRef]['dst'] != dst:
-                    print("  dst mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['dst'], dst))               
+                    print_to_log("  dst mac not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['dst'], dst))               
                 if StreamDetails[gocbRef]['appid'] != appid:
-                    print("  appid not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['appid'], appid))
-                print("NOTE: gocbref are expected to be unique for each stream")
+                    print_to_log("  appid not matching: expected: %s, received: %s" % (StreamDetails[gocbRef]['appid'], appid))
+                print_to_log("NOTE: gocbref are expected to be unique for each stream")
 
         item = "%s" % (gocbRef)
         if item not in streams:
@@ -132,11 +135,11 @@ def update_setting(subject, control, value):
 
         dif_off = set(subscribers_list) - set(value)
         dif_on = set(value) - set(subscribers_list)
-        print(dif_off)
-        print(dif_on)
+        #print_to_log(dif_off)
+        #print_to_log(dif_on)
         for item in dif_off:
             unsubscribe(receiver, subscribers_refs[item], start = False)
-            print("INFO: GOOSE item %s unsubscribed" % item)
+            print_to_log("INFO: GOOSE item %s unsubscribed" % item)
         for item in dif_on:
             if item not in goose_data:
                 goose_data[item] = [] # ensure we initialised the dataset
@@ -150,7 +153,7 @@ def update_setting(subject, control, value):
 
         lib61850.GooseReceiver_start(receiver)
         if lib61850.GooseReceiver_isRunning(receiver) == False:
-            print("ERROR: Failed to enable GOOSE subscriber")
+            print_to_log("ERROR: Failed to enable GOOSE subscriber")
         else:# set control-data in the client control if succesfull
             control_data_d[subject][control] = value 
         # update the control now
@@ -168,7 +171,7 @@ def control_setting(): # post requests with data from client-side javascript eve
             for item in control_data_d[subject]:
                 if item == content['id']:
                     if update_setting(subject, content['id'],content['value']) != True: # update the setting
-                        print("ERROR: could not update setting: " + content['id'])
+                        print_to_log("ERROR: could not update setting: " + content['id'])
 
     return json.dumps({'success':True}), 200, {'ContentType':'application/json'} 
 
@@ -200,6 +203,24 @@ def control_data_g():
 def control_data():
     return Response(control_data_g(), mimetype='text/event-stream')
 
+def print_to_log(message):
+    log_list.append(message)
+
+def log_data_g():
+    global log_list
+    log_length = 0
+    while True:
+        if len(log_list) > log_length:
+            json_data = json.dumps(log_list[log_length : ])
+            log_length = len(log_list)
+            yield f"data:{json_data}\n\n"
+        time.sleep(0.3)
+
+@application.route('/log-data')
+def log_data():
+    return Response(log_data_g(), mimetype='text/event-stream')
+
+
 
 def parse_dataset(dataset):
     time = dataset['time']
@@ -214,7 +235,7 @@ def parse_dataset(dataset):
     # remove empty items
     datalist = list(filter(None, datalist))
 
-    print(datalist)
+    print_to_log(datalist)
     result = []
     # parse items that can be represented in a graph (bools and numerical values)
     for item in datalist:
@@ -233,7 +254,7 @@ def parse_dataset(dataset):
                 val = float(item)
                 result.append(val)
             except:
-                print("INFO: item: '%s' ignored" % item)
+                print_to_log("INFO: item: '%s' ignored" % item)
             # Not parsed:
             # BIT_STRING    00111011
             # OCTED_STRING  0a0c0d0e
@@ -249,7 +270,7 @@ def stream_data_g():
     global subscribers_list
     curlen = {}
     while True:
-        #print("round")
+        #print_to_log("round")
         time.sleep(0.1)
         stream_update = False
         data = {}
@@ -262,7 +283,7 @@ def stream_data_g():
 
             while len(goose_data[stream]) > curlen[stream]:
                 stream_update = True
-                #print(goose_data[stream][curlen[stream]])
+                #print_to_log(goose_data[stream][curlen[stream]])
                 dataset = parse_dataset(goose_data[stream][curlen[stream]])
                 data[stream].append(dataset)
                 curlen[stream] = curlen[stream] + 1
@@ -276,22 +297,23 @@ def stream_data_g():
 
 @application.route('/stream-data')
 def stream_data():
+    global goose_data
     return Response(stream_data_g(), mimetype='text/event-stream')
 
 def gooseListener_cb(subscriber, parameter):
     global goose_data
-    print("GOOSE event: (parameter: %s)" % parameter)
-    #print("  stNum: %u sqNum: %u" % ( lib61850.GooseSubscriber_getStNum(subscriber), lib61850.GooseSubscriber_getSqNum(subscriber) ) )
-    #print("  timeToLive: %u" % lib61850.GooseSubscriber_getTimeAllowedToLive(subscriber) )
+    print_to_log("GOOSE event: (parameter: %s)" % parameter)
+    #print_to_log("  stNum: %u sqNum: %u" % ( lib61850.GooseSubscriber_getStNum(subscriber), lib61850.GooseSubscriber_getSqNum(subscriber) ) )
+    #print_to_log("  timeToLive: %u" % lib61850.GooseSubscriber_getTimeAllowedToLive(subscriber) )
     timestamp = lib61850.GooseSubscriber_getTimestamp(subscriber)
-    #print("  timestamp: %u.%u" % ( (timestamp / 1000), (timestamp % 1000) ) )
+    #print_to_log("  timestamp: %u.%u" % ( (timestamp / 1000), (timestamp % 1000) ) )
 
     values = lib61850.GooseSubscriber_getDataSetValues(subscriber)
     buf = ""
     buf2 = lib61850.MmsValue_printToBuffer(values, buf, 1024)
 
     goose_data[str(parameter)].append({'time': int(time.time() * 1000), 'data': buf2.decode("utf-8") })
-    # print("%s" % buf2)
+    # print_to_log("%s" % buf2)
 
 
 # make the callback pointer global to prevent cleanup
@@ -312,9 +334,9 @@ def subscribe(receiver, gocbref, param, start = True):
     if start == True:
         lib61850.GooseReceiver_start(receiver)
         if lib61850.GooseReceiver_isRunning(receiver) == False:
-            print("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.")
+            print_to_log("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.")
             sys.exit(-1)
-    print("INFO: GOOSE subscribed with: %s (param: %s)" % (gocbref, param))
+    print_to_log("INFO: GOOSE subscribed with: %s (param: %s)" % (gocbref, param))
     return subscriber
 
 
@@ -327,9 +349,9 @@ def unsubscribe(receiver, subscriber, start = True):
     if start == True:
         lib61850.GooseReceiver_start(receiver)
         if lib61850.GooseReceiver_isRunning(receiver) == False:
-            print("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.")
+            print_to_log("Failed to start GOOSE subscriber. Reason can be that the Ethernet interface doesn't exist or root permission are required.")
             sys.exit(-1)
-    print("INFO: GOOSE unsubscribed")
+    print_to_log("INFO: GOOSE unsubscribed")
 
 def determine_path():
     """Borrowed from wxglade.py"""

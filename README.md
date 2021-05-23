@@ -7,6 +7,8 @@ It will display values as they come in, and automatically scale the graph to acc
 
 The scrol-wheel will zoom the graph. dragging the chart will allow to pan.  
 
+![Alt text](goosescope.png?raw=true "Screenshot of the GOOSE Scope")
+
 
 ## Limitations
  - currently you cannot pause the chart  
